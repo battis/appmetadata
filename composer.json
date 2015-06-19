@@ -1,0 +1,15 @@
+{
+    "name": "battis/appmetadata",
+    "description": "An object to store app metadata backed by a MySQL table",
+    "authors": [
+        {
+            "name": "Seth Battis",
+            "email": "seth@battis.net"
+        }
+    ],
+    "minimum-stability": "dev",
+    "autoload": {
+        "classmap": [""]
+    },
+    "require": {}
+}
