@@ -5,6 +5,8 @@
  **/
 class AppMetadata extends ArrayObject {
 	
+	const SCHEMA_FILE = __DIR__ . '/schema.sql';
+	
 	protected $sql = null;
 	protected $table = null;
 	protected $app = null;
@@ -82,6 +84,32 @@ class AppMetadata extends ArrayObject {
 		}
 		return parent::offsetSet($key, $value);
 	}
+	
+	/**
+	 * Create the supporting database tables and initialize app metadata
+	 **/
+	public function initialize($defaults = array()) {
+		if (file_exists(AppMetadata::SCHEMA_FILE)) {
+			$tables = explode(";", file_get_contents(AppMetadata::SCHEMA_FILE));
+			foreach ($tables as $table) {
+				if (strlen(trim($table))) {
+					if (!$sql->query($table)) {
+						throw new AppMetadata_Exception("Error creating app metadata database tables: {$sql->error}");
+					}
+				}
+			}
+		} else {
+			throw new AppMetadata_Exception("Schema file missing.");
+		}
+		
+		if (isset($defaults) && is_array($defaults)) {
+			foreach($defaults as $key => $value) {
+				$this->offsetSet($key, $value);
+			}
+		} elseif (isset($defaults)) {
+			throw new AppMetadata_Exception("Expected associative array of defaults.");
+		}
+	}	
 }
 
 class AppMetadata_Exception extends Exception {}
