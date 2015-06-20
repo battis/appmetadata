@@ -5,8 +5,6 @@
  **/
 class AppMetadata extends ArrayObject {
 	
-	const SCHEMA_FILE = __DIR__ . '/schema.sql';
-	
 	protected $sql = null;
 	protected $table = null;
 	protected $app = null;
@@ -89,17 +87,19 @@ class AppMetadata extends ArrayObject {
 	 * Create the supporting database tables and initialize app metadata
 	 **/
 	public function initialize($defaults = array()) {
-		if (file_exists(AppMetadata::SCHEMA_FILE)) {
-			$tables = explode(";", file_get_contents(AppMetadata::SCHEMA_FILE));
+		$schemaFile = __DIR__ . '/schema.sql';
+		
+		if (file_exists($schemaFile)) {
+			$tables = explode(";", file_get_contents($schemaFile));
 			foreach ($tables as $table) {
 				if (strlen(trim($table))) {
-					if (!$sql->query($table)) {
-						throw new AppMetadata_Exception("Error creating app metadata database tables: {$sql->error}");
+					if (!$this->sql->query($table)) {
+						throw new AppMetadata_Exception("Error creating app metadata database tables: {$this->sql->error}");
 					}
 				}
 			}
 		} else {
-			throw new AppMetadata_Exception("Schema file missing.");
+			throw new AppMetadata_Exception("Schema file missing ($schemaFile).");
 		}
 		
 		if (isset($defaults) && is_array($defaults)) {
