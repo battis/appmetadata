@@ -71,11 +71,11 @@ class AppMetadata extends ArrayObject {
 			$_key = $this->sql->real_escape_string($key);
 			$_value = $this->sql->real_escape_string($value);
 			if ($this->offsetExists($key)) {
-				if (!$this->sql->query("UPDATE `{$this->table}` SET `value` = '$_value' WHERE `key` = '$_key'")) {
+				if (!$this->sql->query("UPDATE `{$this->table}` SET `value` = '$_value' WHERE `app` = '{$this->app}' AND `key` = '$_key'")) {
 					throw new AppMetadata_Exception("Unable to update app metadata (`$_key` = '$_value'). {$this->sql->error}");
 				}
 			} else {
-				if (!$this->sql->query("INSERT INTO `{$this->table}` (`key`, `value`) VALUES ('$_key', '$_value')")) {
+				if (!$this->sql->query("INSERT INTO `{$this->table}` (`app`, `key`, `value`) VALUES ('{$this->app}', '$_key', '$_value')")) {
 					throw new AppMetadata_Exception("Unable to insert app metadata (`$_key` = '$_value'). {$this->sql->error}");
 				}
 			}
