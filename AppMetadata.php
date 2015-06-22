@@ -49,6 +49,13 @@ class AppMetadata extends ArrayObject {
 							break;
 					}
 					
+					/* deserialize serialized objects */
+					$errorReporting = error_reporting(0);
+					if (($_value = unserialize($metadata['value'])) !== false) {
+						$metadata['value'] = $_value;
+					}
+					error_reporting($errorReporting);
+					
 					/* allow for app metadata fields to be derived from each other */
 					if (preg_match('/@\w+/', $metadata['value'])) {
 						$derived[$metadata['key']] = $metadata['value'];
@@ -98,7 +105,11 @@ class AppMetadata extends ArrayObject {
 	public function offsetSet($key, $value, $updateDatabase = true) {
 		if ($updateDatabase) {
 			$_key = $this->sql->real_escape_string($key);
-			$_value = $this->sql->real_escape_string($value);
+			if (is_object($value) || is_array($value)) {
+				$_value = $this->sql->real_escape_string(serialize($value));
+			} else {
+				$_value = $this->sql->real_escape_string($value);
+			}
 			if ($this->offsetExists($key)) {
 				if (!$this->sql->query("UPDATE `{$this->table}` SET `value` = '$_value' WHERE `app` = '{$this->app}' AND `key` = '$_key'")) {
 					throw new AppMetadata_Exception(
