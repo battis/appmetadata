@@ -38,4 +38,4 @@ echo $metadata['X'];
 unset($metadata['X']);
 ```
 
-Complete documentation is available [within the package](https://raw.githubusercontent.com/battis/appmetadata/master/doc/index.html).
+Complete documentation is available [within the package](http://htmlpreview.github.io/?https://github.com/battis/appmetadata/blob/master/doc/index.html).
