@@ -26,7 +26,7 @@ class AppMetadata extends ArrayObject {
 	 *
 	 * @param mysqli $sql A database connection to the backing store for the AppMetadata object
 	 * @param string $app A unique app ID to identify _this_ app's data in the backing store
-	 * @param string $table Name of the table that backs the AppMetadata object (defaults to `app_metadata`)
+	 * @param string optional $table Name of the table that backs the AppMetadata object (defaults to `app_metadata`)
 	 * 
 	 * @throws AppMetadata_Exception INVALID_MYSQLI_OBJECT f no database connection is provided
 	 **/
@@ -98,6 +98,10 @@ class AppMetadata extends ArrayObject {
 	/**
 	 * Transparently update the persistent app_metadata store when the data is changed
 	 *
+	 * @param int|string $key Associative array key
+	 * @param mixed $value Value to store in that key ($key => $value)
+	 * @param boolean $updateDatabase optional Used in __construct() to handle derived values (@APP_URL/icon.png)
+	 *
 	 * @return void (unless ArrayObject::offsetSet() returns a value... then this will too!)
 	 *
 	 * @throws AppMetadata_Exception UPDATE_FAIL if an existing key cannot be updated
@@ -133,6 +137,8 @@ class AppMetadata extends ArrayObject {
 	/**
 	 * Transparently expunge the persistent app_metadata store when the data is unset
 	 *
+	 * @param mixed int|string $key Array key whose value will be unset()
+	 *
 	 * @return void (unless ArrayObject::offsetUnset() returns a value... then this wil too!)
 	 *
 	 * @throws AppMetadata_Exception DELETE_FAIL if the deletion fails
@@ -152,7 +158,7 @@ class AppMetadata extends ArrayObject {
 	 * Create the supporting database table
 	 *
 	 * @param mysqli $sql A mysqli object representing the database connection
-	 * @param string $schema Path to a schema file for insertion into the database
+	 * @param string $schema optional Path to a schema file for insertion into the database
 	 *
 	 * @return boolean TRUE iff the database tables were created, FALSE if some tables already existed in database (and were, therefore, not created and not over-written)
 	 *
