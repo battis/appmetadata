@@ -37,3 +37,5 @@ echo $metadata['X'];
 // remove something from the database
 unset($metadata['X']);
 ```
+
+Complete documentation is available [within the package](https://raw.githubusercontent.com/battis/appmetadata/master/doc/index.html).
