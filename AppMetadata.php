@@ -28,7 +28,7 @@ class AppMetadata extends ArrayObject {
 	 * @param string $app A unique app ID to identify _this_ app's data in the backing store
 	 * @param string $table Name of the table that backs the AppMetadata object (defaults to `app_metadata`)
 	 * 
-	 * @throws AppMetadata_Exception If no database connection is provided
+	 * @throws AppMetadata_Exception INVALID_MYSQLI_OBJECT f no database connection is provided
 	 **/
 	public function __construct($sql, $app, $table = 'app_metadata') {
 		parent::__construct(array());
@@ -57,7 +57,7 @@ class AppMetadata extends ArrayObject {
 					error_reporting($errorReporting);
 					
 					/* allow for app metadata fields to be derived from each other */
-					if (preg_match('/@\w+/', $metadata['value'])) {
+					if (is_string($metadata['value']) && preg_match('/@\w+/', $metadata['value'])) {
 						$derived[$metadata['key']] = $metadata['value'];
 					}
 					$this->offsetSet($metadata['key'], $metadata['value'], false);
@@ -100,7 +100,8 @@ class AppMetadata extends ArrayObject {
 	 *
 	 * @return void (unless ArrayObject::offsetSet() returns a value... then this will too!)
 	 *
-	 * @throws AppMetadata_Exception On Mysql errors.
+	 * @throws AppMetadata_Exception UPDATE_FAIL if an existing key cannot be updated
+	 * @throws AppMetadata_Exception INSERT_FAIL if a new key cannot be inserted
 	 **/
 	public function offsetSet($key, $value, $updateDatabase = true) {
 		if ($updateDatabase) {
@@ -130,6 +131,24 @@ class AppMetadata extends ArrayObject {
 	}
 	
 	/**
+	 * Transparently expunge the persistent app_metadata store when the data is unset
+	 *
+	 * @return void (unless ArrayObject::offsetUnset() returns a value... then this wil too!)
+	 *
+	 * @throws AppMetadata_Exception DELETE_FAIL if the deletion fails
+	 **/
+	public function offsetUnset($key) {
+		$_key = $this->sql->real_escape_string($key);
+		if (!$this->sql->query("DELETE FROM `{$this->table}` WHERE `key` = '$_key'")) {
+			throw new AppMetadata_Exception(
+				"Unable to delete app metadata (`$_key`). {$this->sql->error}",
+				AppMetadata_Exception::DELETE_FAIL
+			);
+		}
+		return parent::offsetUnset($key);
+	}
+	
+	/**
 	 * Create the supporting database table
 	 *
 	 * @param mysqli $sql A mysqli object representing the database connection
@@ -137,9 +156,9 @@ class AppMetadata extends ArrayObject {
 	 *
 	 * @return boolean TRUE iff the database tables were created, FALSE if some tables already existed in database (and were, therefore, not created and not over-written)
 	 *
-	 * @throws AppMetadata_Exception If no valid mysqli object is provided to access the database
-	 * @throws AppMetadata_Exception If the schema file cannot be found
-	 * @throws AppMetadata_Exception If the schema tables cannot be loaded
+	 * @throws AppMetadata_Exception INVALID_MYSQLI_OBJECT if no valid mysqli object is provided to access the database
+	 * @throws AppMetadata_Exception MISSING_SCHEMA if the schema file cannot be found
+	 * @throws AppMetadata_Exception CREATE_TABLE_FAIL or PREPARE_DATABASE_FAIL if the schema tables cannot be loaded
 	 **/
 	public static function prepareDatabase($sql, $schema = false) {
 		if ($sql instanceof mysqli) {
@@ -196,12 +215,13 @@ class AppMetadata extends ArrayObject {
  * So that we can throw catch-able exceptions
  **/
 class AppMetadata_Exception extends Exception {
-	const INVALID_MYSQLI_OBJECT = 0;
-	const UPDATE_FAIL = 1;
-	const INSERT_FAIL = 2;
-	const CREATE_TABLE_FAIL = 3;
-	const PREPARE_DATABASE_FAIL = 4;
-	const MISSING_SCHEMA = 5;
+	const INVALID_MYSQLI_OBJECT = 1;
+	const UPDATE_FAIL = 2;
+	const INSERT_FAIL = 3;
+	const DELETE_FAIL = 4;
+	const CREATE_TABLE_FAIL = 5;
+	const PREPARE_DATABASE_FAIL = 6;
+	const MISSING_SCHEMA = 7;
 }
 
 ?>
