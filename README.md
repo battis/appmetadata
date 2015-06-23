@@ -19,7 +19,13 @@ Update your [`composer.json`](https://getcomposer.org) file to include the follo
 Create an `AppMetadata` object and treat it as you would any other associative array.
 
 ```PHP
+// instantiate a new mysqli database connection
 $sql = new mysqli('localhost', 'root', 's00pers3kr3t', 'demo-db');
+
+// first use (create database tables -- only needs to happen once!)
+AppMetadata::prepareDatabase($sql);
+
+// instantiate our metadata array
 $metadata = new AppMetadata($sql, 'my-unique-app-key');
 
 // store something into the database
