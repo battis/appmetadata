@@ -63,7 +63,7 @@ class AppMetadata extends ArrayObject {
 					if (is_string($metadata['value']) && preg_match('/@\w+/', $metadata['value'])) {
 						$derived[$metadata['key']] = $metadata['value'];
 					}
-					$this->offsetSet($metadata['key'], $metadata['value'], false);
+					$this->_offsetSet($metadata['key'], $metadata['value'], false);
 				}
 				
 				/* generate derived fields based on prior fields */
@@ -84,7 +84,7 @@ class AppMetadata extends ArrayObject {
 						}
 
 						if (!$dirty) {
-							$this->offsetSet($key, $value, false);
+							$this->_offsetSet($key, $value, false);
 							unset($derived[$key]);
 						}
 					}
