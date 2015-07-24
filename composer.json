@@ -1,6 +1,7 @@
 {
     "name": "battis/appmetadata",
     "description": "An object to store app metadata backed by a MySQL table",
+    "license": "LGPL-3.0",
     "authors": [
         {
             "name": "Seth Battis",
