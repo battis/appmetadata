@@ -11,7 +11,7 @@ Update your [`composer.json`](https://getcomposer.org) file to include the follo
 ```JSON
 {
   "requires": {
-    "battis/appmetadata": "dev-master"
+    "battis/appmetadata": "~1.0"
   }
 }
 ```
@@ -23,19 +23,28 @@ Create an `AppMetadata` object and treat it as you would any other associative a
 $sql = new mysqli('localhost', 'root', 's00pers3kr3t', 'demo-db');
 
 // first use (create database tables -- only needs to happen once!)
-AppMetadata::prepareDatabase($sql);
+Battis\AppMetadata::prepareDatabase($sql);
 
 // instantiate our metadata array
-$metadata = new AppMetadata($sql, 'my-unique-app-key');
+$metadata = new Battis\AppMetadata($sql, 'my-unique-app-key');
 
 // store something into the database
 $metadata['X'] = 'foobar';
 
 // read something out of the database
-echo $metadata['X'];
+echo $metadata['X']; // 'foobar'
+
+// use one metadata value to derive another
+$metadata['Y'] = '@X again'
+echo $metadata['Y']; // 'foobar again';
+
+// derived values update automagically
+$metadata['X'] = 'xoxo';
+echo $metadata['Y']; // 'xoxo again';
 
 // remove something from the database
 unset($metadata['X']);
+echo $metadata['Y']; // '@X again', since no value X to derive from
 ```
 
 Complete documentation is available [within the package](http://htmlpreview.github.io/?https://github.com/battis/appmetadata/blob/master/doc/index.html).
