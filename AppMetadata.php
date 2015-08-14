@@ -85,7 +85,9 @@ class AppMetadata extends \ArrayObject {
 	 * @throws AppMetadata_Exception INSERT_FAIL if a new key cannot be inserted
 	 **/
 	public function offsetSet($key, $value) {
-		return $this->_offsetSet($key, $value);
+		$result = $this->_offsetSet($key, $value);
+		$this->updateDerivedValues($key, $value);
+		return $result;
 	}
 
 	/**
@@ -123,11 +125,6 @@ class AppMetadata extends \ArrayObject {
 					);
 				}
 			}
-		}
-		
-		/* only update derived values if the actual database is updated */
-		if ($updateDatabase) {
-			$this->updateDerivedValues($key, $value);
 		}
 		
 		return parent::offsetSet($key, $value);
@@ -240,13 +237,21 @@ class AppMetadata extends \ArrayObject {
 	 **/
 	private function updateDerivedValues($key = null, $value = null) {
 		
+		/* 
+		 * TODO
+		 * I darkly suspect that there is a possibility that you could create a loop
+		 * of derived references that would be irresolvable and not currently detected
+		 * e.g. A => '@B', B=>'@C', C=>'@A'. Perhaps the best approach would be to
+		 * limit the depth of the derivation search?
+		 */
+		
 		$derived = array();
 
 		/* determine breadth of derived fields affected */
 		$derivedPattern = '%@_%';
 		if (!empty($key)) {
 			$_key = $this->sql->real_escape_string($key);
-			$derivedPattern = "%@$key%";
+			$derivedPattern = "%@$_key%";
 			
 			if (!empty($value)) {
 				$derived[$key] = $value;
@@ -270,32 +275,26 @@ class AppMetadata extends \ArrayObject {
 		while (count($derived) > 0) {
 			$next = array();
 			foreach ($derived as $key => $value) {
-				
+
+				/* look for @keys in the value */				
 				preg_match_all('/@(\w+)/', $value, $sources, PREG_SET_ORDER);
 				
+				$dirty = false;
 				foreach($sources as $source) {
 					if ($this->offsetExists($source[1])) {
 						$value = preg_replace("/{$source[0]}/", $this->offsetGet($source[1]), $value);
+						$dirty = true;
 					}
 				}
-								
-				/* is further derivation possible? */
-				$derivable = false;
-				preg_match_all('/@(\w+)/', $value, $sources, PREG_SET_ORDER);
-				if (!empty($sources)) {
-					foreach($sources as $source) {
-						/* sources cannot be ourselves and must exist in the array */
-						if (($source != $key) && $this->offsetExists($key)) {
-							$derivable = true;
-						}
-					}
-				}
-				if ($derivable) {
+				/* ...and queue up again to check */
+				if ($dirty) {
 					$next[$key] = $value;
 				} else {
-					$this->_offsetSet($key, $value, false);	
+					$this->_offsetSet($key, $value, false);
 				}
 			}
+			
+			/* use new queue */
 			$derived = $next;
 		}
 	}
