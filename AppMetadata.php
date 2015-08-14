@@ -40,7 +40,6 @@ class AppMetadata extends ArrayObject {
 			$this->table = $sql->real_escape_string($table);
 			$this->app = $sql->real_escape_string($app);
 			if ($response = $sql->query("SELECT * FROM `{$this->table}` WHERE `app` = '{$this->app}'")) {
-				$derived = array();
 				while ($metadata = $response->fetch_assoc()) {
 					/* booleanize booleans */
 					switch($metadata['value']) {
@@ -58,38 +57,8 @@ class AppMetadata extends ArrayObject {
 						$metadata['value'] = $_value;
 					}
 					error_reporting($errorReporting);
-					
-					/* allow for app metadata fields to be derived from each other */
-					if (is_string($metadata['value']) && preg_match('/@\w+/', $metadata['value'])) {
-						$derived[$metadata['key']] = $metadata['value'];
-					} else {
-						$this->_offsetSet($metadata['key'], $metadata['value'], false);
-					}
 				}
-				
-				/* generate derived fields based on prior fields */
-				while (count($derived) > 0) {
-					foreach ($derived as $key => $value) {
-						preg_match_all('/@(\w+)/', $value, $sources, PREG_SET_ORDER);
-						$dirty = false;
-						foreach ($sources as $source) {
-							/* can we update this $value now, or do we have to wait for a later pass? */
-							if ($this->offsetExists($source[1])) {
-								$value = preg_replace("|{$source[0]}|", $this->offsetGet($source[1]), $value);
-							} else {
-								/* if we'll be able to update it in a later pass, it's still "dirty" */
-								if (array_key_exists($source[1], $derived)) {
-	 								$dirty = true;
-								}
-							}
-						}
-
-						if (!$dirty) {
-							$this->_offsetSet($key, $value, false);
-							unset($derived[$key]);
-						}
-					}
-				}
+				$this->updateDerivedValues();
 			}
 		} else {
 			throw new AppMetadata_Exception(
@@ -150,6 +119,9 @@ class AppMetadata extends ArrayObject {
 				}
 			}
 		}
+		
+		$this->updateDerivedValues($key, $value);
+		
 		return parent::offsetSet($key, $value);
 	}
 	
@@ -170,7 +142,12 @@ class AppMetadata extends ArrayObject {
 				AppMetadata_Exception::DELETE_FAIL
 			);
 		}
-		return parent::offsetUnset($key);
+		
+		$result = parent::offsetUnset($key);
+
+		$this->updateDerivedValues($key);
+		
+		return $result;
 	}
 	
 	/**
@@ -232,6 +209,75 @@ class AppMetadata extends ArrayObject {
 				"Expected valid mysqli object.",
 				AppMetadata_Exception::INVALID_MYSQLI_OBJECT
 			);
+		}
+	}
+	
+	/**
+	 * Calculate the derived value for a particular offset
+	 *
+	 * For example...
+	 ```PHP
+	 $metadata['A'] = 'foo';
+	 $metadata['B'] = '@A/bar';
+	 echo $metadata['B']; // 'foo/bar';
+	 $metadata['A'] = 'rutabega';
+	 echo $metadata['B']; // 'rutabega/bar'
+	 ```
+	 *
+	 * @param string $key (Optional) Limit the updates to values derived from `$key`
+	 * @param string $value (Optiona) The value that is stored at `$key` which may
+	 *		itself need to be derived further
+	 *
+	 * @return void
+	 **/
+	private function updateDerivedValues($key = null, $value = null) {
+		$derived = array();
+
+		$derivedPattern = '%@_%';
+		if (!empty($key)) {
+			$_key = $this->sql->real_escape_string($key);
+			$derivedPattern = "%@$key%";
+			
+			if (!empty($value)) {
+				$derived[$key] = $value;
+			}
+		}
+
+		if ($result = $this->sql->query("
+			SELECT *
+				FROM `{$this->table}`
+				WHERE
+					`value` LIKE '$derivedPattern'
+					
+		")) {
+			while($row = $result->fetch_assoc()) {
+				$derived[$row['key']] = $row['value'];
+			}
+		}
+
+		/* generate derived fields based on prior fields */
+		while (count($derived) > 0) {
+			foreach ($derived as $key => $value) {
+				preg_match_all('/@(\w+)/', $value, $sources, PREG_SET_ORDER);
+				$dirty = false;
+				foreach ($sources as $source) {
+					/* can we update this $value now, or do we have to wait for a later pass? */
+					if ($this->offsetExists($source[1])) {
+						$value = preg_replace("|{$source[0]}|", $this->offsetGet($source[1]), $value);
+					} else {
+						/* if we'll be able to update it in a later pass, it's still "dirty" */
+						if (array_key_exists($source[1], $derived)) {
+								$dirty = true;
+						}
+					}
+				}
+
+				/* if we can't derive it further, take it out of the queue */
+				if (!$dirty) {
+					$this->_offsetSet($key, $value, false);
+					unset($derived[$key]);
+				}
+			}
 		}
 	}
 }
