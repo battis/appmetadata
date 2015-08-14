@@ -10,7 +10,8 @@
     ],
     "minimum-stability": "dev",
     "autoload": {
-        "classmap": [""]
-    },
-    "require": {}
+        "psr-4": {
+	        "Battis\\": "" 
+        }
+    }
 }

@@ -1,25 +1,28 @@
 <?php
 
+/** AppMetadata and related classes */
+
+namespace Battis;
+
 /**
  * Transparently back an associative array with a MySQL database
  *
- * @version GIT: $Id$
  * @author Seth Battis <seth@battis.net>
  **/
-class AppMetadata extends ArrayObject {
+class AppMetadata extends \ArrayObject {
 	
 	/**
-	 * @var mysqli @sql Database connection to backing store
+	 * @var \mysqli Database connection to backing store
 	 **/
 	protected $sql = null;
 	
 	/**
-	 * @var string $table Name of the database table in backing store
+	 * @var string Name of the database table in backing store
 	 **/
 	protected $table = null;
 	
 	/**
-	 * @var string $app Name of the app (used to look up data in the backing store)
+	 * @var string Name of the app (used to look up data in the backing store)
 	 **/
 	protected $app = null;
 	
@@ -27,7 +30,7 @@ class AppMetadata extends ArrayObject {
 	 * Construct an AppMetadata object, loading in persistent data, including
 	 * fields whose values derive from others (e.g. 'APP_ICON_URL' => '@APP_URL/icon.png')
 	 *
-	 * @param mysqli $sql A database connection to the backing store for the AppMetadata object
+	 * @param \mysqli $sql A database connection to the backing store for the AppMetadata object
 	 * @param string $app A unique app ID to identify _this_ app's data in the backing store
 	 * @param string optional $table Name of the table that backs the AppMetadata object (defaults to `app_metadata`)
 	 * 
@@ -35,7 +38,7 @@ class AppMetadata extends ArrayObject {
 	 **/
 	public function __construct($sql, $app, $table = 'app_metadata') {
 		parent::__construct(array());
-		if ($sql instanceof mysqli) {
+		if ($sql instanceof \mysqli) {
 			$this->sql = $sql;
 			$this->table = $sql->real_escape_string($table);
 			$this->app = $sql->real_escape_string($app);
@@ -57,6 +60,8 @@ class AppMetadata extends ArrayObject {
 						$metadata['value'] = $_value;
 					}
 					error_reporting($errorReporting);
+					
+					$this->_offsetSet($metadata['key'], $metadata['value'], false);
 				}
 				$this->updateDerivedValues();
 			}
@@ -120,7 +125,10 @@ class AppMetadata extends ArrayObject {
 			}
 		}
 		
-		$this->updateDerivedValues($key, $value);
+		/* only update derived values if the actual database is updated */
+		if ($updateDatabase) {
+			$this->updateDerivedValues($key, $value);
+		}
 		
 		return parent::offsetSet($key, $value);
 	}
@@ -153,7 +161,7 @@ class AppMetadata extends ArrayObject {
 	/**
 	 * Create the supporting database table
 	 *
-	 * @param mysqli $sql A mysqli object representing the database connection
+	 * @param \mysqli $sql A mysqli object representing the database connection
 	 * @param string $schema optional Path to a schema file for insertion into the database
 	 *
 	 * @return boolean TRUE iff the database tables were created, FALSE if some tables already existed in database (and were, therefore, not created and not over-written)
@@ -163,7 +171,7 @@ class AppMetadata extends ArrayObject {
 	 * @throws AppMetadata_Exception CREATE_TABLE_FAIL or PREPARE_DATABASE_FAIL if the schema tables cannot be loaded
 	 **/
 	public static function prepareDatabase($sql, $schema = false) {
-		if ($sql instanceof mysqli) {
+		if ($sql instanceof \mysqli) {
 			/* if no schema file passed in, default to local schema.sql */
 			if (!$schema) {
 				$schema = __DIR__ . '/schema.sql';
@@ -231,8 +239,10 @@ class AppMetadata extends ArrayObject {
 	 * @return void
 	 **/
 	private function updateDerivedValues($key = null, $value = null) {
+		
 		$derived = array();
 
+		/* determine breadth of derived fields affected */
 		$derivedPattern = '%@_%';
 		if (!empty($key)) {
 			$_key = $this->sql->real_escape_string($key);
@@ -242,7 +252,8 @@ class AppMetadata extends ArrayObject {
 				$derived[$key] = $value;
 			}
 		}
-
+		
+		/* build a list of affected key => value pairs */
 		if ($result = $this->sql->query("
 			SELECT *
 				FROM `{$this->table}`
@@ -254,47 +265,68 @@ class AppMetadata extends ArrayObject {
 				$derived[$row['key']] = $row['value'];
 			}
 		}
-
+		
 		/* generate derived fields based on prior fields */
 		while (count($derived) > 0) {
+			$next = array();
 			foreach ($derived as $key => $value) {
+				
 				preg_match_all('/@(\w+)/', $value, $sources, PREG_SET_ORDER);
-				$dirty = false;
-				foreach ($sources as $source) {
-					/* can we update this $value now, or do we have to wait for a later pass? */
+				
+				foreach($sources as $source) {
 					if ($this->offsetExists($source[1])) {
-						$value = preg_replace("|{$source[0]}|", $this->offsetGet($source[1]), $value);
-					} else {
-						/* if we'll be able to update it in a later pass, it's still "dirty" */
-						if (array_key_exists($source[1], $derived)) {
-								$dirty = true;
+						$value = preg_replace("/{$source[0]}/", $this->offsetGet($source[1]), $value);
+					}
+				}
+								
+				/* is further derivation possible? */
+				$derivable = false;
+				preg_match_all('/@(\w+)/', $value, $sources, PREG_SET_ORDER);
+				if (!empty($sources)) {
+					foreach($sources as $source) {
+						/* sources cannot be ourselves and must exist in the array */
+						if (($source != $key) && $this->offsetExists($key)) {
+							$derivable = true;
 						}
 					}
 				}
-
-				/* if we can't derive it further, take it out of the queue */
-				if (!$dirty) {
-					$this->_offsetSet($key, $value, false);
-					unset($derived[$key]);
+				if ($derivable) {
+					$next[$key] = $value;
+				} else {
+					$this->_offsetSet($key, $value, false);	
 				}
 			}
+			$derived = $next;
 		}
 	}
 }
 
 /**
- * AppMetadata-sepcific exceptions (for easier exception catching)
+ * AppMetadata-specific exceptions (for easier exception catching)
  *
- * @version GIT: $Id$
  * @author Seth Battis <seth@battis.net>
  **/
-class AppMetadata_Exception extends Exception {
+class AppMetadata_Exception extends \Exception {
+	
+	/** Invalid MySQL database connection */
 	const INVALID_MYSQLI_OBJECT = 1;
+	
+	/** Unable to update a metadata value */
 	const UPDATE_FAIL = 2;
+	
+	/** Unable to create a new metadata value */
 	const INSERT_FAIL = 3;
+	
+	/** Unable to delete a metadata value */
 	const DELETE_FAIL = 4;
+	
+	/** Unable to create an individual backing table */
 	const CREATE_TABLE_FAIL = 5;
+	
+	/** Unable to prepare the database for use to back the array */
 	const PREPARE_DATABASE_FAIL = 6;
+	
+	/** No schema file from which to prepare the backing database for use */
 	const MISSING_SCHEMA = 7;
 }
 
