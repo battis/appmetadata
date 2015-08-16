@@ -141,7 +141,7 @@ class AppMetadata extends \ArrayObject {
 	 **/
 	public function offsetUnset($key) {
 		$_key = $this->sql->real_escape_string($key);
-		if (!$this->sql->query("DELETE FROM `{$this->table}` WHERE `key` = '$_key'")) {
+		if (!$this->sql->query("DELETE FROM `{$this->table}` WHERE `app` = '{$this->app}' AND `key` = '$_key'")) {
 			throw new AppMetadata_Exception(
 				"Unable to delete app metadata (`$_key`). {$this->sql->error}",
 				AppMetadata_Exception::DELETE_FAIL
