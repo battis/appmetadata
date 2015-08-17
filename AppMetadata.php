@@ -44,24 +44,7 @@ class AppMetadata extends \ArrayObject {
 			$this->app = $sql->real_escape_string($app);
 			if ($response = $sql->query("SELECT * FROM `{$this->table}` WHERE `app` = '{$this->app}'")) {
 				while ($metadata = $response->fetch_assoc()) {
-					/* booleanize booleans */
-					switch($metadata['value']) {
-						case 'TRUE':
-							$metadata['value'] = true;
-							break;
-						case 'FALSE':
-							$metadata['value'] = false;
-							break;
-					}
-					
-					/* deserialize serialized objects */
-					$errorReporting = error_reporting(0);
-					if (($_value = unserialize($metadata['value'])) !== false) {
-						$metadata['value'] = $_value;
-					}
-					error_reporting($errorReporting);
-					
-					$this->_offsetSet($metadata['key'], $metadata['value'], false);
+					$this->_offsetSet($metadata['key'], unserialize($metadata['value']), false);
 				}
 				$this->updateDerivedValues();
 			}
@@ -105,11 +88,7 @@ class AppMetadata extends \ArrayObject {
 	private function _offsetSet($key, $value, $updateDatabase = true) {
 		if ($updateDatabase) {
 			$_key = $this->sql->real_escape_string($key);
-			if (is_object($value) || is_array($value)) {
-				$_value = $this->sql->real_escape_string(serialize($value));
-			} else {
-				$_value = $this->sql->real_escape_string($value);
-			}
+			$_value = $this->sql->real_escape_string(serialize($value));
 			if ($this->offsetExists($key)) {
 				if (!$this->sql->query("UPDATE `{$this->table}` SET `value` = '$_value' WHERE `app` = '{$this->app}' AND `key` = '$_key'")) {
 					throw new AppMetadata_Exception(
@@ -253,7 +232,7 @@ class AppMetadata extends \ArrayObject {
 			$_key = $this->sql->real_escape_string($key);
 			$derivedPattern = "%@$_key%";
 			
-			if (!empty($value)) {
+			if (!empty($value) && is_string($value)) {
 				$derived[$key] = $value;
 			}
 		}
@@ -267,7 +246,10 @@ class AppMetadata extends \ArrayObject {
 					
 		")) {
 			while($row = $result->fetch_assoc()) {
-				$derived[$row['key']] = $row['value'];
+				$value = unserialize($row['value']);
+				if (is_string($value)) {
+					$derived[$row['key']] = $value;
+				}
 			}
 		}
 		
@@ -281,7 +263,7 @@ class AppMetadata extends \ArrayObject {
 				
 				$dirty = false;
 				foreach($sources as $source) {
-					if ($this->offsetExists($source[1])) {
+					if ($this->offsetExists($source[1]) && is_string($this->offsetGet($source[1]))) {
 						$value = preg_replace("/{$source[0]}/", $this->offsetGet($source[1]), $value);
 						$dirty = true;
 					}
