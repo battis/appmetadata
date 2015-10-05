@@ -26,6 +26,9 @@ class AppMetadata extends \ArrayObject {
 	 **/
 	protected $app = null;
 	
+	/** @var boolean Whether or not the database is prepared */
+	private $initialized = false;
+	
 	/**
 	 * Construct an AppMetadata object, loading in persistent data, including
 	 * fields whose values derive from others (e.g. 'APP_ICON_URL' => '@APP_URL/icon.png')
@@ -87,21 +90,23 @@ class AppMetadata extends \ArrayObject {
 	 **/
 	private function _offsetSet($key, $value, $updateDatabase = true) {
 		if ($updateDatabase) {
-			$_key = $this->sql->real_escape_string($key);
-			$_value = $this->sql->real_escape_string(serialize($value));
-			if ($this->offsetExists($key)) {
-				if (!$this->sql->query("UPDATE `{$this->table}` SET `value` = '$_value' WHERE `app` = '{$this->app}' AND `key` = '$_key'")) {
-					throw new AppMetadata_Exception(
-						"Unable to update app metadata (`$_key` = '$_value'). {$this->sql->error}",
-						AppMetadata_Exception::UPDATE_FAIL
-					);
-				}
-			} else {
-				if (!$this->sql->query("INSERT INTO `{$this->table}` (`app`, `key`, `value`) VALUES ('{$this->app}', '$_key', '$_value')")) {
-					throw new AppMetadata_Exception(
-						"Unable to insert app metadata (`$_key` = '$_value'). {$this->sql->error}",
-						AppMetadata_Exception::INSERT_FAIL
-					);
+			if ($this->sqlInitialized()) {
+				$_key = $this->sql->real_escape_string($key);
+				$_value = $this->sql->real_escape_string(serialize($value));
+				if ($this->offsetExists($key)) {
+					if (!$this->sql->query("UPDATE `{$this->table}` SET `value` = '$_value' WHERE `app` = '{$this->app}' AND `key` = '$_key'")) {
+						throw new AppMetadata_Exception(
+							"Unable to update app metadata (`$_key` = '$_value'). {$this->sql->error}",
+							AppMetadata_Exception::UPDATE_FAIL
+						);
+					}
+				} else {
+					if (!$this->sql->query("INSERT INTO `{$this->table}` (`app`, `key`, `value`) VALUES ('{$this->app}', '$_key', '$_value')")) {
+						throw new AppMetadata_Exception(
+							"Unable to insert app metadata (`$_key` = '$_value'). {$this->sql->error}",
+							AppMetadata_Exception::INSERT_FAIL
+						);
+					}
 				}
 			}
 		}
@@ -137,63 +142,58 @@ class AppMetadata extends \ArrayObject {
 	/**
 	 * Create the supporting database table
 	 *
-	 * @param \mysqli $sql A mysqli object representing the database connection
-	 * @param string $schema optional Path to a schema file for insertion into the database
-	 *
 	 * @return boolean TRUE iff the database tables were created, FALSE if some tables already existed in database (and were, therefore, not created and not over-written)
 	 *
 	 * @throws AppMetadata_Exception INVALID_MYSQLI_OBJECT if no valid mysqli object is provided to access the database
 	 * @throws AppMetadata_Exception MISSING_SCHEMA if the schema file cannot be found
 	 * @throws AppMetadata_Exception CREATE_TABLE_FAIL or PREPARE_DATABASE_FAIL if the schema tables cannot be loaded
 	 **/
-	public static function prepareDatabase($sql, $schema = false) {
-		if ($sql instanceof \mysqli) {
-			/* if no schema file passed in, default to local schema.sql */
-			if (!$schema) {
-				$schema = __DIR__ . '/schema.sql';
+	public function buildDatabase() {
+		if ($this->sql) {
+			if ($this->sql->query("
+				CREATE TABLE IF NOT EXISTS `{$this->table}` (
+					`id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+					`key` varchar(255) NOT NULL,
+					`value` text,
+					`validate` text,
+					`timestamp` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+					`app` varchar(255) NOT NULL DEFAULT '',
+					PRIMARY KEY (`id`)
+				);
+			")) {
+				$this->initialized = true;
+				
+				/* Upgrade pre-v1.2 app_metadata tables to include independent IDs */
+				$this->sql->query("
+					ALTER TABLE `{$this->table}`
+						DROP PRIMARY KEY,
+						ADD `id` INT(11) UNSIGNED PRIMARY KEY AUTO_INCREMENT FIRST;
+				");
 			}
+		}
+		return $this->initialized;
+	}
 	
-			if (file_exists($schema)) {
-				$queries = explode(";", file_get_contents($schema));
-				$created = true;
-				foreach ($queries as $query) {
-					if (!empty(trim($query))) {
-						if (preg_match('/CREATE\s+TABLE\s+(`([^`]+)`|\w+)/i', $query, $tableName)) {
-							$tableName = (empty($tableName[2]) ? $tableName[1] : $tableName[2]);
-							if ($sql->query("SHOW TABLES LIKE '$tableName'")->num_rows > 0) {
-								$created = false;
-							} else {
-								if (!$sql->query($query)) {
-									throw new AppMetadata_Exception(
-										"Error creating app metadata database tables: {$sql->error}",
-										AppMetadata_Exception::CREATE_TABLE_FAIL
-									);
-								}
-							}
-						} else {
-							if (!$sql->query($query)) {
-								throw new AppMetadata_Exception(
-									"Error creating app metadata database tables: {$sql->error}",
-									AppMetadata_Exception::PREPARE_DATABASE_FAIL
-								);
-							}
-						}
-					}
-				}
-			} else {
+	/**
+	 * Test for database connection initialization
+	 *
+	 * If the database connection is not initalized, attempt to do so.
+	 *
+	 * @return boolean Returns `TRUE` if database connection is ready
+	 *
+	 * @throws AppMetadata_Exception PREPARE_DATABASE_FAIL If the backing
+	 *		database connection cannot be initialized
+	 **/
+	protected function sqlInitialized() {
+		if (!$this->initialized) {
+			if (!$this->buildDatabase()) {
 				throw new AppMetadata_Exception(
-					"Schema file missing ($schema).",
-					AppMetadata_Exception::MISSING_SCHEMA
+					'Backing database not initializable',
+					AppMetadata_Exception::PREPARE_DATABASE_FAIL
 				);
 			}
-			
-			return $created;
-		} else {
-			throw new AppMetadata_Exception(
-				"Expected valid mysqli object.",
-				AppMetadata_Exception::INVALID_MYSQLI_OBJECT
-			);
 		}
+		return true;
 	}
 	
 	/**
@@ -306,9 +306,6 @@ class AppMetadata_Exception extends \Exception {
 	
 	/** Unable to prepare the database for use to back the array */
 	const PREPARE_DATABASE_FAIL = 6;
-	
-	/** No schema file from which to prepare the backing database for use */
-	const MISSING_SCHEMA = 7;
 }
 
 ?>
