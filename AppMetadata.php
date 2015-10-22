@@ -280,6 +280,23 @@ class AppMetadata extends \ArrayObject {
 			$derived = $next;
 		}
 	}
+	
+	/**
+	 * Replace derived values in an abitrary string using AppMetadata
+	 *
+	 * @param string $s
+	 *
+	 * @return string
+	 **/
+	public function derivedValues($s) {
+		preg_match_all('/@(\w+)/', $s, $possibilities, PREG_SET_ORDER);
+		foreach ($possibilities as $possibility) {
+			if ($this->offsetExists($possibility[1]) && is_string($this->offsetGet($possibility[1]))) {
+				$s = str_replace($possibility[0], $this->offsetGet($possibility[1]), $s);
+			}
+		}
+		return $s;
+	}
 }
 
 /**
