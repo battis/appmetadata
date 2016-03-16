@@ -16,6 +16,12 @@ Update your [`composer.json`](https://getcomposer.org) file to include the follo
 }
 ```
 
+*Handy hint:* It always annoys me to have the overhead of documentation, unit tests, etc. for other projects included in mine. Per [this answer on Stack Overflow](http://stackoverflow.com/a/17069547), you can actually buy some small improvement by adding the `--prefer-dist` flag to `composer install` and `composer update`, as in:
+
+```BASH
+composer install --prefer-dist
+```
+
 Create an `AppMetadata` object and treat it as you would any other associative array.
 
 ```PHP
