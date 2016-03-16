@@ -26,6 +26,9 @@ class AppMetadata extends \ArrayObject {
 	 **/
 	protected $app = null;
 	
+	/** @var boolean Whether or not the database is prepared */
+	private $initialized = false;
+	
 	/**
 	 * Construct an AppMetadata object, loading in persistent data, including
 	 * fields whose values derive from others (e.g. 'APP_ICON_URL' => '@APP_URL/icon.png')
@@ -44,24 +47,7 @@ class AppMetadata extends \ArrayObject {
 			$this->app = $sql->real_escape_string($app);
 			if ($response = $sql->query("SELECT * FROM `{$this->table}` WHERE `app` = '{$this->app}'")) {
 				while ($metadata = $response->fetch_assoc()) {
-					/* booleanize booleans */
-					switch($metadata['value']) {
-						case 'TRUE':
-							$metadata['value'] = true;
-							break;
-						case 'FALSE':
-							$metadata['value'] = false;
-							break;
-					}
-					
-					/* deserialize serialized objects */
-					$errorReporting = error_reporting(0);
-					if (($_value = unserialize($metadata['value'])) !== false) {
-						$metadata['value'] = $_value;
-					}
-					error_reporting($errorReporting);
-					
-					$this->_offsetSet($metadata['key'], $metadata['value'], false);
+					$this->_offsetSet($metadata['key'], unserialize($metadata['value']), false);
 				}
 				$this->updateDerivedValues();
 			}
@@ -85,7 +71,9 @@ class AppMetadata extends \ArrayObject {
 	 * @throws AppMetadata_Exception INSERT_FAIL if a new key cannot be inserted
 	 **/
 	public function offsetSet($key, $value) {
-		return $this->_offsetSet($key, $value);
+		$result = $this->_offsetSet($key, $value);
+		$this->updateDerivedValues($key, $value);
+		return $result;
 	}
 
 	/**
@@ -102,32 +90,25 @@ class AppMetadata extends \ArrayObject {
 	 **/
 	private function _offsetSet($key, $value, $updateDatabase = true) {
 		if ($updateDatabase) {
-			$_key = $this->sql->real_escape_string($key);
-			if (is_object($value) || is_array($value)) {
+			if ($this->sqlInitialized()) {
+				$_key = $this->sql->real_escape_string($key);
 				$_value = $this->sql->real_escape_string(serialize($value));
-			} else {
-				$_value = $this->sql->real_escape_string($value);
-			}
-			if ($this->offsetExists($key)) {
-				if (!$this->sql->query("UPDATE `{$this->table}` SET `value` = '$_value' WHERE `app` = '{$this->app}' AND `key` = '$_key'")) {
-					throw new AppMetadata_Exception(
-						"Unable to update app metadata (`$_key` = '$_value'). {$this->sql->error}",
-						AppMetadata_Exception::UPDATE_FAIL
-					);
-				}
-			} else {
-				if (!$this->sql->query("INSERT INTO `{$this->table}` (`app`, `key`, `value`) VALUES ('{$this->app}', '$_key', '$_value')")) {
-					throw new AppMetadata_Exception(
-						"Unable to insert app metadata (`$_key` = '$_value'). {$this->sql->error}",
-						AppMetadata_Exception::INSERT_FAIL
-					);
+				if ($this->offsetExists($key)) {
+					if (!$this->sql->query("UPDATE `{$this->table}` SET `value` = '$_value' WHERE `app` = '{$this->app}' AND `key` = '$_key'")) {
+						throw new AppMetadata_Exception(
+							"Unable to update app metadata (`$_key` = '$_value'). {$this->sql->error}",
+							AppMetadata_Exception::UPDATE_FAIL
+						);
+					}
+				} else {
+					if (!$this->sql->query("INSERT INTO `{$this->table}` (`app`, `key`, `value`) VALUES ('{$this->app}', '$_key', '$_value')")) {
+						throw new AppMetadata_Exception(
+							"Unable to insert app metadata (`$_key` = '$_value'). {$this->sql->error}",
+							AppMetadata_Exception::INSERT_FAIL
+						);
+					}
 				}
 			}
-		}
-		
-		/* only update derived values if the actual database is updated */
-		if ($updateDatabase) {
-			$this->updateDerivedValues($key, $value);
 		}
 		
 		return parent::offsetSet($key, $value);
@@ -144,7 +125,7 @@ class AppMetadata extends \ArrayObject {
 	 **/
 	public function offsetUnset($key) {
 		$_key = $this->sql->real_escape_string($key);
-		if (!$this->sql->query("DELETE FROM `{$this->table}` WHERE `key` = '$_key'")) {
+		if (!$this->sql->query("DELETE FROM `{$this->table}` WHERE `app` = '{$this->app}' AND `key` = '$_key'")) {
 			throw new AppMetadata_Exception(
 				"Unable to delete app metadata (`$_key`). {$this->sql->error}",
 				AppMetadata_Exception::DELETE_FAIL
@@ -161,63 +142,58 @@ class AppMetadata extends \ArrayObject {
 	/**
 	 * Create the supporting database table
 	 *
-	 * @param \mysqli $sql A mysqli object representing the database connection
-	 * @param string $schema optional Path to a schema file for insertion into the database
-	 *
 	 * @return boolean TRUE iff the database tables were created, FALSE if some tables already existed in database (and were, therefore, not created and not over-written)
 	 *
 	 * @throws AppMetadata_Exception INVALID_MYSQLI_OBJECT if no valid mysqli object is provided to access the database
 	 * @throws AppMetadata_Exception MISSING_SCHEMA if the schema file cannot be found
 	 * @throws AppMetadata_Exception CREATE_TABLE_FAIL or PREPARE_DATABASE_FAIL if the schema tables cannot be loaded
 	 **/
-	public static function prepareDatabase($sql, $schema = false) {
-		if ($sql instanceof \mysqli) {
-			/* if no schema file passed in, default to local schema.sql */
-			if (!$schema) {
-				$schema = __DIR__ . '/schema.sql';
+	public function buildDatabase() {
+		if ($this->sql) {
+			if ($this->sql->query("
+				CREATE TABLE IF NOT EXISTS `{$this->table}` (
+					`id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+					`key` varchar(255) NOT NULL,
+					`value` text,
+					`validate` text,
+					`timestamp` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+					`app` varchar(255) NOT NULL DEFAULT '',
+					PRIMARY KEY (`id`)
+				);
+			")) {
+				$this->initialized = true;
+				
+				/* Upgrade pre-v1.2 app_metadata tables to include independent IDs */
+				$this->sql->query("
+					ALTER TABLE `{$this->table}`
+						DROP PRIMARY KEY,
+						ADD `id` INT(11) UNSIGNED PRIMARY KEY AUTO_INCREMENT FIRST;
+				");
 			}
+		}
+		return $this->initialized;
+	}
 	
-			if (file_exists($schema)) {
-				$queries = explode(";", file_get_contents($schema));
-				$created = true;
-				foreach ($queries as $query) {
-					if (!empty(trim($query))) {
-						if (preg_match('/CREATE\s+TABLE\s+(`([^`]+)`|\w+)/i', $query, $tableName)) {
-							$tableName = (empty($tableName[2]) ? $tableName[1] : $tableName[2]);
-							if ($sql->query("SHOW TABLES LIKE '$tableName'")->num_rows > 0) {
-								$created = false;
-							} else {
-								if (!$sql->query($query)) {
-									throw new AppMetadata_Exception(
-										"Error creating app metadata database tables: {$sql->error}",
-										AppMetadata_Exception::CREATE_TABLE_FAIL
-									);
-								}
-							}
-						} else {
-							if (!$sql->query($query)) {
-								throw new AppMetadata_Exception(
-									"Error creating app metadata database tables: {$sql->error}",
-									AppMetadata_Exception::PREPARE_DATABASE_FAIL
-								);
-							}
-						}
-					}
-				}
-			} else {
+	/**
+	 * Test for database connection initialization
+	 *
+	 * If the database connection is not initalized, attempt to do so.
+	 *
+	 * @return boolean Returns `TRUE` if database connection is ready
+	 *
+	 * @throws AppMetadata_Exception PREPARE_DATABASE_FAIL If the backing
+	 *		database connection cannot be initialized
+	 **/
+	protected function sqlInitialized() {
+		if (!$this->initialized) {
+			if (!$this->buildDatabase()) {
 				throw new AppMetadata_Exception(
-					"Schema file missing ($schema).",
-					AppMetadata_Exception::MISSING_SCHEMA
+					'Backing database not initializable',
+					AppMetadata_Exception::PREPARE_DATABASE_FAIL
 				);
 			}
-			
-			return $created;
-		} else {
-			throw new AppMetadata_Exception(
-				"Expected valid mysqli object.",
-				AppMetadata_Exception::INVALID_MYSQLI_OBJECT
-			);
 		}
+		return true;
 	}
 	
 	/**
@@ -240,15 +216,23 @@ class AppMetadata extends \ArrayObject {
 	 **/
 	private function updateDerivedValues($key = null, $value = null) {
 		
+		/* 
+		 * TODO
+		 * I darkly suspect that there is a possibility that you could create a loop
+		 * of derived references that would be irresolvable and not currently detected
+		 * e.g. A => '@B', B=>'@C', C=>'@A'. Perhaps the best approach would be to
+		 * limit the depth of the derivation search?
+		 */
+		
 		$derived = array();
 
 		/* determine breadth of derived fields affected */
 		$derivedPattern = '%@_%';
 		if (!empty($key)) {
 			$_key = $this->sql->real_escape_string($key);
-			$derivedPattern = "%@$key%";
+			$derivedPattern = "%@$_key%";
 			
-			if (!empty($value)) {
+			if (!empty($value) && is_string($value)) {
 				$derived[$key] = $value;
 			}
 		}
@@ -262,7 +246,10 @@ class AppMetadata extends \ArrayObject {
 					
 		")) {
 			while($row = $result->fetch_assoc()) {
-				$derived[$row['key']] = $row['value'];
+				$value = unserialize($row['value']);
+				if (is_string($value)) {
+					$derived[$row['key']] = $value;
+				}
 			}
 		}
 		
@@ -270,34 +257,45 @@ class AppMetadata extends \ArrayObject {
 		while (count($derived) > 0) {
 			$next = array();
 			foreach ($derived as $key => $value) {
-				
+
+				/* look for @keys in the value */				
 				preg_match_all('/@(\w+)/', $value, $sources, PREG_SET_ORDER);
 				
+				$dirty = false;
 				foreach($sources as $source) {
-					if ($this->offsetExists($source[1])) {
+					if ($this->offsetExists($source[1]) && is_string($this->offsetGet($source[1]))) {
 						$value = preg_replace("/{$source[0]}/", $this->offsetGet($source[1]), $value);
+						$dirty = true;
 					}
 				}
-								
-				/* is further derivation possible? */
-				$derivable = false;
-				preg_match_all('/@(\w+)/', $value, $sources, PREG_SET_ORDER);
-				if (!empty($sources)) {
-					foreach($sources as $source) {
-						/* sources cannot be ourselves and must exist in the array */
-						if (($source != $key) && $this->offsetExists($key)) {
-							$derivable = true;
-						}
-					}
-				}
-				if ($derivable) {
+				/* ...and queue up again to check */
+				if ($dirty) {
 					$next[$key] = $value;
 				} else {
-					$this->_offsetSet($key, $value, false);	
+					$this->_offsetSet($key, $value, false);
 				}
 			}
+			
+			/* use new queue */
 			$derived = $next;
 		}
+	}
+	
+	/**
+	 * Replace derived values in an abitrary string using AppMetadata
+	 *
+	 * @param string $s
+	 *
+	 * @return string
+	 **/
+	public function derivedValues($s) {
+		preg_match_all('/@(\w+)/', $s, $possibilities, PREG_SET_ORDER);
+		foreach ($possibilities as $possibility) {
+			if ($this->offsetExists($possibility[1]) && is_string($this->offsetGet($possibility[1]))) {
+				$s = str_replace($possibility[0], $this->offsetGet($possibility[1]), $s);
+			}
+		}
+		return $s;
 	}
 }
 
@@ -325,9 +323,6 @@ class AppMetadata_Exception extends \Exception {
 	
 	/** Unable to prepare the database for use to back the array */
 	const PREPARE_DATABASE_FAIL = 6;
-	
-	/** No schema file from which to prepare the backing database for use */
-	const MISSING_SCHEMA = 7;
 }
 
 ?>
