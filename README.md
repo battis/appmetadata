@@ -1,6 +1,7 @@
 # AppMetadata
 
 [![Latest Version](https://img.shields.io/packagist/v/battis/appmetadata.svg)](https://packagist.org/packages/battis/appmetadata)
+[![Scrutinizer Code Quality](https://scrutinizer-ci.com/g/battis/appmetadata/badges/quality-score.png?b=master)](https://scrutinizer-ci.com/g/battis/appmetadata/?branch=master)
 
 This is one of those things that feels like it should already exist, but my cursory search of the interwebs failed to turn it up:
 an associative array akin to `$_GLOBALS` that is backed by a persistent datastore (MySQL in this case, because it's the only
